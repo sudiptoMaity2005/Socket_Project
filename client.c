@@ -14,25 +14,37 @@ typedef struct {
     char payload[PAYLOAD_SIZE];// The actual data
 } Message;
 
-int main() {
+int main(int argc, char *argv[]) {
     int sock;
     struct sockaddr_in serv_addr;
     char ip[50], limit[50];
 
-    // 1. Get user inputs locally
+    // 1. Check if the user actually provided a file name!
+    if (argc != 2) {
+        printf("Usage: %s <source_file.c>\n", argv[0]);
+        return 1;
+    }
+    
+    char *source_file = argv[1]; // Grab the file name from the terminal
+
+    // 2. Get the rest of the inputs interactively
     printf("Enter Server IP: ");
     if (scanf("%49s", ip) != 1) return 1;
 
     printf("Enter the limit for prime numbers: ");
     if (scanf("%49s", limit) != 1) return 1;
 
-    // 2. Compile program
-    printf("Compiling payload locally...\n");
-    if (system("gcc program.c -o program.out") != 0) {
-        printf("Local compilation failed\n");
+    // 3. Dynamically build the compile command for the exact file they passed
+    char compile_cmd[256];
+    sprintf(compile_cmd, "gcc %s -o dynamic_payload.out", source_file);
+    
+    printf("Compiling '%s' locally...\n", source_file);
+    if (system(compile_cmd) != 0) {
+        printf("Local compilation failed. Check your C code for syntax errors.\n");
         return 1;
     }
 
+    // Connect to Server
     sock = socket(AF_INET, SOCK_STREAM, 0);
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_port = htons(PORT);
@@ -47,7 +59,7 @@ int main() {
         return -1;
     }
 
-    // 3. Send the Argument (Type 1)
+    // 4. Send the Argument (Type 1)
     Message arg_msg;
     arg_msg.type = 1;
     arg_msg.data_length = strlen(limit);
@@ -55,8 +67,8 @@ int main() {
     strcpy(arg_msg.payload, limit);
     send(sock, &arg_msg, sizeof(Message), 0);
 
-    // 4. Send the File Data in chunks (Type 2)
-    FILE *fp = fopen("program.out", "rb");
+    // 5. Send the dynamically compiled file (Type 2)
+    FILE *fp = fopen("dynamic_payload.out", "rb");
     int bytes;
     char buffer[PAYLOAD_SIZE];
     
@@ -71,19 +83,23 @@ int main() {
     }
     fclose(fp);
 
-    // 5. Send the End-Of-File signal (Type 3)
+    // 6. Send EOF signal (Type 3)
     Message eof_msg;
     eof_msg.type = 3;
     eof_msg.data_length = 0;
     send(sock, &eof_msg, sizeof(Message), 0);
 
-    // 6. Receive final output from Server
+    // 7. Receive final output
     printf("\n---- Output from Remote Machine ----\n");
-    while ((bytes = recv(sock, buffer, PAYLOAD_SIZE, 0)) > 0) {
+    while ((bytes = recv(sock, buffer, PAYLOAD_SIZE - 1, 0)) > 0) {
         buffer[bytes] = '\0';
         printf("%s", buffer);
     }
 
     close(sock);
+    
+    // Clean up the temp file after we are done
+    unlink("dynamic_payload.out"); 
+    
     return 0;
 }
