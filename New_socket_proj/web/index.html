@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>P2P Node Dashboard</title>
+  <meta name="description" content="Web dashboard for the P2P Distributed Task Execution System" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- ── Navbar ──────────────────────────────────────────────────────────────── -->
+<header>
+  <div class="logo">
+    <div class="logo-icon">⬡</div>
+    P2P Node <span>Dashboard</span>
+  </div>
+  <div id="status-pill">
+    <div class="dot"></div>
+    <span id="status-text">Connecting…</span>
+  </div>
+</header>
+
+<!-- ── Main grid ────────────────────────────────────────────────────────────── -->
+<div class="layout">
+
+  <!-- Stat cards -->
+  <div class="stats-row">
+    <div class="stat-card">
+      <div class="stat-label">PEERS ONLINE</div>
+      <div class="stat-value" id="stat-peers">—</div>
+      <div class="stat-sub">discovered on LAN</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">TASKS RUN</div>
+      <div class="stat-value" id="stat-tasks">0</div>
+      <div class="stat-sub">this session</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">LAST EXIT CODE</div>
+      <div class="stat-value" id="stat-exit">—</div>
+      <div class="stat-sub">most recent command</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">NODE PORT</div>
+      <div class="stat-value" id="stat-port">7777</div>
+      <div class="stat-sub">TCP worker port</div>
+    </div>
+  </div>
+
+  <!-- ── Sidebar ── -->
+  <aside>
+    <!-- Peers -->
+    <div class="card" style="margin-bottom:1.1rem">
+      <div class="card-title">⬡ Peers</div>
+      <div id="peers-list">
+        <div class="no-peers">Run <code>peers</code> to discover nodes</div>
+      </div>
+    </div>
+
+    <!-- History -->
+    <div class="card">
+      <div class="card-title">↺ History</div>
+      <div id="history-list">
+        <div class="no-history">No commands yet</div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ── Terminal + input ── -->
+  <section style="display:flex;flex-direction:column;gap:.75rem;min-width:0;">
+    <div class="card" style="padding:.75rem 1rem .0rem">
+      <div class="card-title" style="margin-bottom:.5rem">⌨ Terminal</div>
+    </div>
+
+    <div class="terminal-wrap" style="flex:1;display:flex;flex-direction:column;">
+      <div id="output" role="log" aria-live="polite"></div>
+      <div class="cmd-bar">
+        <div class="cmd-prefix">p2p&gt;</div>
+        <input id="cmd-input" type="text"
+               placeholder="run uname -a   |   submit file.c   |   peers"
+               autocomplete="off" spellcheck="false"
+               aria-label="P2P command input" />
+        <button class="send-btn" id="send-btn" aria-label="Send command">
+          ↵ Send
+        </button>
+      </div>
+    </div>
+
+    <!-- Quick actions -->
+    <div class="quick-actions">
+      <button class="qa-btn" data-cmd="peers">peers</button>
+      <button class="qa-btn" data-cmd='run "uname -a"'>run "uname -a"</button>
+      <button class="qa-btn" data-cmd='run "hostname"'>run "hostname"</button>
+      <button class="qa-btn" data-cmd='run "uptime"'>run "uptime"</button>
+      <button class="qa-btn" data-cmd='run "ls /tmp"'>run "ls /tmp"</button>
+      <button class="qa-btn" id="clear-btn">clear</button>
+    </div>
+  </section>
+
+</div><!-- end .layout -->
+
+<script src="app.js"></script>
+</body>
+</html>

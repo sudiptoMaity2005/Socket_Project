@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdatomic.h>
+#include <stdlib.h>
 
 #include "load_monitor.h"
 #include "common.h"
@@ -9,10 +10,10 @@ static atomic_uint g_active_tasks = 0;
 
 /* ─── load_get ───────────────────────────────────────────────────────────── */
 int load_get(float *load1, float *load5, float *load15) {
+#ifdef __linux__
     FILE *f = fopen("/proc/loadavg", "r");
     if (!f) {
         perror("fopen /proc/loadavg");
-        /* Should never happen on Linux; report as maximum load */
         *load1 = *load5 = *load15 = 99.0f;
         return -1;
     }
@@ -24,6 +25,18 @@ int load_get(float *load1, float *load5, float *load15) {
         return -1;
     }
     return 0;
+#else
+    double load[3];
+    if (getloadavg(load, 3) != -1) {
+        *load1  = (float)load[0];
+        *load5  = (float)load[1];
+        *load15 = (float)load[2];
+        return 0;
+    }
+    perror("getloadavg");
+    *load1 = *load5 = *load15 = 99.0f;
+    return -1;
+#endif
 }
 
 /* ─── active task counter ────────────────────────────────────────────────── */

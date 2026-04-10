@@ -2,7 +2,7 @@
 #define COMMON_H
 
 #ifndef __linux__
-#  error "This project is Linux-only. /proc/loadavg and Linux socket APIs are required."
+#  warning "This project is optimized for Linux. /proc/loadavg is not available; using fallback load detection."
 #endif
 
 #include <stdint.h>

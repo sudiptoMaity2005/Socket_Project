@@ -1,0 +1,2 @@
+/Users/sudiptomaity/projects/sockets/Socket_Project/New_socket_proj/web/server.py:29: DeprecationWarning: websockets.server.serve is deprecated
+  from websockets.server import serve as ws_serve
