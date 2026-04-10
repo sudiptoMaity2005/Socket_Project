@@ -3,20 +3,24 @@
 
 #include <stdint.h>
 
-/* Read /proc/loadavg and populate load averages; returns 0 on success */
+/* Get 1/5/15 minute load average. Returns 0 on success. */
 int load_get(float *load1, float *load5, float *load15);
 
-/* Thread-safe increment/decrement of the active task counter */
-void load_task_start(void);
-void load_task_done(void);
+/* Return number of online CPU cores. */
+uint32_t load_get_core_count(void);
 
-/* Return current active task count */
+/* Task counting for load formula */
+void     load_task_start(void);
+void     load_task_done(void);
 uint32_t load_get_active_tasks(void);
+uint32_t load_get_total_tasks(void);
 
-/*
- * Composite load score for scheduling decisions.
- * Higher = more loaded. Formula: load1 + 0.5 * active_tasks
- */
-float load_score_local(void);
+
+/* Compute local load as a percentage (0-100) */
+float    load_get_percentage(void);
+
+/* Compute local score: load_pct + 10 * active_tasks (weight adjusted for pct) */
+float    load_score_local(void);
 
 #endif /* LOAD_MONITOR_H */
+

@@ -57,15 +57,16 @@ static void *load_responder_thread(void *arg) {
 
         /* Build response */
         payload_load_resp_t resp;
-        float l1 = 0, l5 = 0, l15 = 0;
-        load_get(&l1, &l5, &l15);
+        float lp = load_get_percentage();
 
-        /* Store floats in network byte order */
+        /* Store float in network byte order */
         uint32_t tmp;
-        memcpy(&tmp, &l1,  4); tmp = htonl(tmp); memcpy(&resp.load1,  &tmp, 4);
-        memcpy(&tmp, &l5,  4); tmp = htonl(tmp); memcpy(&resp.load5,  &tmp, 4);
-        memcpy(&tmp, &l15, 4); tmp = htonl(tmp); memcpy(&resp.load15, &tmp, 4);
+        memcpy(&tmp, &lp, 4); tmp = htonl(tmp); memcpy(&resp.load_pct, &tmp, 4);
+
         resp.active_tasks = htonl(load_get_active_tasks());
+        resp.total_tasks  = htonl(load_get_total_tasks());
+        resp.num_cores    = htonl(load_get_core_count());
+
 
         /* Send response directly back to the querier's source port */
         msg_header_t resp_hdr;
@@ -112,8 +113,8 @@ static void run_repl(void) {
     printf("║  P2P Distributed Task Execution Shell  ║\n");
     printf("╚════════════════════════════════════════╝\n");
     printf("Commands:\n");
-    printf("  run <shell command>    — dispatch command to least-loaded peer\n");
     printf("  submit <file.c>        — compile & run .c file on least-loaded peer\n");
+
     printf("  peers                  — list discovered peers and their loads\n");
     printf("  quit                   — broadcast BYE and exit\n\n");
 
@@ -130,31 +131,15 @@ static void run_repl(void) {
 
         /* ── peers ── */
         if (strcmp(line, "peers") == 0) {
-            peer_list_print();
+            peer_list_print(g_local_ip, g_own_port);
             continue;
         }
+
 
         /* ── quit ── */
         if (strcmp(line, "quit") == 0 || strcmp(line, "exit") == 0) {
             g_running = 0;
             break;
-        }
-
-        /* ── run <cmd> ── */
-        if (strncmp(line, "run ", 4) == 0) {
-            const char *cmd = line + 4;
-            while (*cmd == ' ') cmd++;
-            if (*cmd == '\0') { printf("Usage: run <command>\n"); continue; }
-
-            task_t t;
-            memset(&t, 0, sizeof(t));
-            t.type = TASK_CMD;
-            strncpy(t.cmd, cmd, MAX_CMD_LEN - 1);
-
-            printf("--- output ---\n");
-            int rc = dispatch(&t, g_local_ip, g_own_port);
-            printf("--- exit code: %d ---\n\n", rc);
-            continue;
         }
 
         /* ── submit <file.c> ── */
@@ -185,7 +170,8 @@ static void run_repl(void) {
             continue;
         }
 
-        printf("Unknown command. Type 'peers', 'run <cmd>', 'submit <file.c>', or 'quit'.\n");
+        printf("Unknown command. Type 'peers', 'submit <file.c>', or 'quit'.\n");
+
     }
 }
 
@@ -201,6 +187,9 @@ static void usage(const char *prog) {
 
 /* ─── main ───────────────────────────────────────────────────────────────── */
 int main(int argc, char *argv[]) {
+    /* Disable buffering for real-time output when piped */
+    setvbuf(stdout, NULL, _IONBF, 0);
+
     uint16_t port  = DEFAULT_WORKER_PORT;
     char    *iface = NULL;
 

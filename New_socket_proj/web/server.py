@@ -70,12 +70,13 @@ async def broadcast(msg: dict):
 # ── Read p2p_node stdout/stderr and forward to WS clients ────────────────────
 async def pipe_output(stream, kind: str):
     while True:
-        raw = await stream.readline()
+        # Use read(n) instead of readline() to avoid blocking on prompts without newlines
+        raw = await stream.read(1024)
         if not raw:
             break
-        line = raw.decode(errors="replace").rstrip("\n")
-        OUTPUT_LOG.append(line)
-        await broadcast({"type": "output", "kind": kind, "line": line})
+        text = raw.decode(errors="replace")
+        OUTPUT_LOG.append(text)
+        await broadcast({"type": "output", "kind": kind, "line": text})
     await broadcast({"type": "done", "stream": kind})
 
 
@@ -104,6 +105,21 @@ async def ws_handler(websocket):
                     except Exception as exc:
                         await websocket.send(json.dumps(
                             {"type": "error", "line": f"Send error: {exc}"}))
+
+            elif msg.get("type") == "file_upload":
+                filename = msg.get("filename", "upload.c")
+                content = msg.get("content", "")
+                # Save to a temporary-ish path in the project root
+                path = BINARY.parent / f"web_upload_{filename}"
+                try:
+                    with open(path, "w") as f:
+                        f.write(content)
+                    if p2p_proc and p2p_proc.stdin:
+                        p2p_proc.stdin.write(f"submit {path}\n".encode())
+                        await p2p_proc.stdin.drain()
+                except Exception as exc:
+                    await websocket.send(json.dumps(
+                        {"type": "error", "line": f"Upload error: {exc}"}))
 
             elif msg.get("type") == "status":
                 alive = p2p_proc is not None and p2p_proc.returncode is None

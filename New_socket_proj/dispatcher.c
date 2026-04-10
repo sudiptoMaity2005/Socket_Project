@@ -67,35 +67,24 @@ static float query_peer_load(const char *ip, uint16_t port,
     /* Update peer list */
     peer_list_update_load(ip, &resp);
 
-    /* Decode floats (network byte order) */
+    /* Decode float (network byte order) */
     uint32_t tmp; float f;
-    memcpy(&tmp, &resp.load1, 4); tmp = ntohl(tmp); memcpy(&f, &tmp, 4);
-    out_info->load1 = f;
+    memcpy(&tmp, &resp.load_pct, 4); tmp = ntohl(tmp); memcpy(&f, &tmp, 4);
+    out_info->load_pct = f;
+
     out_info->active_tasks = ntohl(resp.active_tasks);
+    out_info->total_tasks  = ntohl(resp.total_tasks);
     out_info->port = port;
     strncpy(out_info->ip, ip, INET_ADDRSTRLEN);
 
-    return f + 0.5f * (float)out_info->active_tasks;
-}
 
-/* ─── Build and send MSG_TASK_CMD payload ────────────────────────────────── */
-static int send_task_cmd(int fd, const task_t *task) {
-    uint16_t cmd_len = (uint16_t)strlen(task->cmd);
-    uint32_t total   = 2 + cmd_len;
-    uint8_t *buf     = malloc(total);
-    if (!buf) return -1;
+    return f + 10.0f * (float)out_info->active_tasks;
 
-    uint16_t nl = htons(cmd_len);
-    memcpy(buf, &nl, 2);
-    memcpy(buf + 2, task->cmd, cmd_len);
-
-    int ret = send_msg(fd, MSG_TASK_CMD, buf, total);
-    free(buf);
-    return ret;
 }
 
 /* ─── Build and send MSG_TASK_FILE payload ───────────────────────────────── */
 static int send_task_file(int fd, const task_t *task) {
+
     uint16_t fn_len   = (uint16_t)strlen(task->filename);
     uint32_t total    = 2 + fn_len + 4 + task->file_size;
     uint8_t *buf      = malloc(total);
@@ -158,7 +147,11 @@ int dispatch(const task_t *task, const char *local_ip, uint16_t own_port) {
     for (int i = 0; i < n_peers; i++) {
         peer_info_t result;
         float score = query_peer_load(peers[i].ip, peers[i].port, &result);
-        printf("  [load] %s:%u → score=%.2f\n", peers[i].ip, peers[i].port, score);
+        printf("  [load] %s:%u → load=%.1f%%\n",
+               peers[i].ip, peers[i].port, result.load_pct);
+
+
+
         if (score < best_score) {
             best_score = score;
             strncpy(best_ip, peers[i].ip, INET_ADDRSTRLEN);
@@ -168,7 +161,11 @@ int dispatch(const task_t *task, const char *local_ip, uint16_t own_port) {
 
     /* Also consider self */
     float self_score = load_score_local();
-    printf("  [load] %s:%u (self) → score=%.2f\n", local_ip, own_port, self_score);
+    printf("  [load] %s:%u (self) → load=%.1f%%\n",
+           local_ip, own_port, load_get_percentage());
+
+
+
 
     if (n_peers == 0 || self_score <= best_score) {
         use_local = 1;
@@ -196,11 +193,8 @@ int dispatch(const task_t *task, const char *local_ip, uint16_t own_port) {
         }
     }
 
-    int send_ret;
-    if (task->type == TASK_CMD)
-        send_ret = send_task_cmd(fd, task);
-    else
-        send_ret = send_task_file(fd, task);
+    int send_ret = send_task_file(fd, task);
+
 
     if (send_ret < 0) {
         fprintf(stderr, "dispatch: failed to send task\n");

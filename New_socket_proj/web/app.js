@@ -8,30 +8,32 @@
   'use strict';
 
   /* ── Config ──────────────────────────────────────────────────────────────── */
-  const WS_URL    = `ws://${location.hostname}:8765`;
+  const WS_URL = `ws://${location.hostname}:8765`;
   const RECONNECT = 3000;  // ms before reconnect attempt
 
   /* ── State ───────────────────────────────────────────────────────────────── */
-  let ws          = null;
-  let taskCount   = 0;
-  let peers       = {};         // ip:port → {ip, port, load1, tasks, lastSeen}
-  let history     = [];
-  let historyIdx  = -1;
+  let ws = null;
+  let taskCount = 0;
+  let peers = {};         // ip:port → {ip, port, load1, tasks, lastSeen}
+  let history = [];
+  let historyIdx = -1;
   let pendingOutput = '';       // accumulates until we get a done/exit_code line
 
   /* ── DOM refs ────────────────────────────────────────────────────────────── */
-  const $output      = document.getElementById('output');
-  const $input       = document.getElementById('cmd-input');
-  const $sendBtn     = document.getElementById('send-btn');
-  const $clearBtn    = document.getElementById('clear-btn');
-  const $statusPill  = document.getElementById('status-pill');
-  const $statusText  = document.getElementById('status-text');
-  const $statPeers   = document.getElementById('stat-peers');
-  const $statTasks   = document.getElementById('stat-tasks');
-  const $statExit    = document.getElementById('stat-exit');
-  const $statPort    = document.getElementById('stat-port');
-  const $peersList   = document.getElementById('peers-list');
+  const $output = document.getElementById('output');
+  const $input = document.getElementById('cmd-input');
+  const $sendBtn = document.getElementById('send-btn');
+  const $clearBtn = document.getElementById('clear-btn');
+  const $statusPill = document.getElementById('status-pill');
+  const $statusText = document.getElementById('status-text');
+  const $statPeers = document.getElementById('stat-peers');
+  const $statTasks = document.getElementById('stat-tasks');
+  const $statExit = document.getElementById('stat-exit');
+  const $statPort = document.getElementById('stat-port');
+  const $peersList = document.getElementById('peers-list');
   const $historyList = document.getElementById('history-list');
+  const $uploadBtn = document.getElementById('upload-btn');
+  const $fileInput = document.getElementById('file-input');
 
   /* ── Terminal helpers ────────────────────────────────────────────────────── */
   function appendLine(text, cls = '') {
@@ -44,8 +46,8 @@
   }
 
   function systemMsg(text) { appendLine(text, 'system'); }
-  function successMsg(text){ appendLine(text, 'success'); }
-  function clearOutput()   { $output.innerHTML = ''; }
+  function successMsg(text) { appendLine(text, 'success'); }
+  function clearOutput() { $output.innerHTML = ''; }
 
   /* ── Peer list renderer ──────────────────────────────────────────────────── */
   function parsePeersOutput(raw) {
@@ -54,18 +56,23 @@
      *   [1] 192.168.1.5:7777  load=0.42/0.31/0.20  tasks=1
      * and also the plain IP:port pattern as a fallback.
      */
-    const re = /(\d+\.\d+\.\d+\.\d+):(\d+)(?:.*?load=([\d.]+))?(?:.*?tasks=(\d+))?/g;
+    /* Robust regex to match both "IP PORT LOAD% TASKS" and "IP:PORT load=LOAD% tasks=TASKS" */
+    const re = /((?:\d{1,3}\.){3}\d{1,3})[\s:]+(\d+)\s+(?:load=)?\s*([\d.]+)\s*%?\s*(?:tasks=)?\s*(\d+)?/gi;
+
+
+
     let m;
     while ((m = re.exec(raw)) !== null) {
       const key = `${m[1]}:${m[2]}`;
       peers[key] = {
         ip: m[1],
         port: m[2],
-        load1: m[3] ? parseFloat(m[3]) : null,
-        activeTasks: m[4] ? parseInt(m[4]) : null,
+        utilization: m[3] ? parseFloat(m[3]) : 0,
+        activeTasks: m[4] ? parseInt(m[4]) : 0,
         lastSeen: Date.now(),
       };
     }
+
     renderPeers();
   }
 
@@ -81,12 +88,9 @@
     $peersList.innerHTML = '';
     keys.forEach(key => {
       const p = peers[key];
-      const score = p.load1 !== null
-        ? (p.load1 + 0.5 * (p.activeTasks || 0)).toFixed(2)
-        : '—';
-      const loadPct = p.load1 !== null
-        ? Math.min(100, (p.load1 / 4) * 100)
-        : 0;
+      const loadPct = p.utilization || 0;
+      /* Simple score for display: load + 10 * tasks */
+      const score = (loadPct + 10 * (p.activeTasks || 0)).toFixed(1);
 
       const el = document.createElement('div');
       el.className = 'peer-item';
@@ -99,12 +103,12 @@
           <div class="peer-load-fill" style="width:${loadPct}%"></div>
         </div>
         <div class="peer-meta">
-          <span>load: ${p.load1 !== null ? p.load1.toFixed(2) : '?'}</span>
-          <span>tasks: ${p.activeTasks !== null ? p.activeTasks : '?'}</span>
-          <span>score: ${score}</span>
+          <span>load: ${loadPct.toFixed(1)}%</span>
         </div>`;
+
       $peersList.appendChild(el);
     });
+
   }
 
   /* ── Exit-code parser ────────────────────────────────────────────────────── */
@@ -154,12 +158,14 @@
     appendLine(`p2p> ${cmd}`, 'success');
     ws.send(JSON.stringify({ type: 'command', cmd }));
 
-    if (cmd === 'peers') pushHistory(cmd);
-    else if (cmd.startsWith('run ') || cmd.startsWith('submit ')) {
-      taskCount++;
-      $statTasks.textContent = taskCount;
+    if (cmd === 'peers' || cmd.startsWith('submit ')) {
+      if (cmd.startsWith('submit ')) {
+        taskCount++;
+        $statTasks.textContent = taskCount;
+      }
       pushHistory(cmd);
     }
+
   }
 
   /* ── WebSocket ───────────────────────────────────────────────────────────── */
@@ -194,19 +200,26 @@
 
       switch (msg.type) {
         case 'output': {
-          const line = msg.line ?? '';
+          const line = msg.line;
           appendLine(line, msg.kind === 'stderr' ? 'stderr' : '');
           tryParseExitCode(line);
-          // Accumulate for peer parser
+          // Accumulate for peer parser, but also try parsing immediately if it looks like a peer line
           pendingOutput += line + '\n';
+          if (line.match(/\d+\.\d+\.\d+\.\d+[\s:]+\d+/) || line.match(/load[%=\s]/)) {
+            parsePeersOutput(line);
+            renderPeers();
+          }
+
           break;
         }
         case 'done':
           // After "peers" output, parse peer list
-          if (pendingOutput.match(/\d+\.\d+\.\d+\.\d+:\d+/)) {
+          if (pendingOutput.match(/\d+\.\d+\.\d+\.\d+[\s:]+\d+/)) {
             parsePeersOutput(pendingOutput);
+            renderPeers();
           }
           pendingOutput = '';
+
           break;
         case 'exited':
           setStatus(false, 'p2p_node exited');
@@ -252,6 +265,33 @@
   });
 
   $clearBtn.addEventListener('click', clearOutput);
+
+  $uploadBtn.addEventListener('click', () => $fileInput.click());
+
+  $fileInput.addEventListener('change', () => {
+    const file = $fileInput.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const content = e.target.result;
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        systemMsg('Cannot upload: not connected', 'stderr');
+        return;
+      }
+      systemMsg(`Uploading and submitting ${file.name}...`);
+      ws.send(JSON.stringify({
+        type: 'file_upload',
+        filename: file.name,
+        content: content
+      }));
+      taskCount++;
+      $statTasks.textContent = taskCount;
+      pushHistory(`submit ${file.name}`);
+    };
+    reader.readAsText(file);
+    $fileInput.value = ''; // Reset for next selection
+  });
 
   document.querySelectorAll('.qa-btn[data-cmd]').forEach(btn => {
     btn.addEventListener('click', () => {

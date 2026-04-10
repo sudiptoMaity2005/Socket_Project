@@ -27,7 +27,8 @@ void peer_list_touch(const char *ip);
 /* Reaper: remove peers not seen for PEER_TIMEOUT_SECS; call periodically */
 void peer_list_reap_stale(void);
 
-/* Print peer list to stdout (for CLI 'peers' command) */
-void peer_list_print(void);
+/* Print peer list to stdout (for CLI 'peers' command), including local info */
+void peer_list_print(const char *local_ip, uint16_t local_port);
+
 
 #endif /* PEER_LIST_H */

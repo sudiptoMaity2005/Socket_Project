@@ -34,8 +34,8 @@ typedef enum __attribute__((packed)) {
     MSG_BYE       = 0x02,  /* UDP broadcast: node leaving                    */
     MSG_LOAD_REQ  = 0x03,  /* UDP unicast: request CPU load info             */
     MSG_LOAD_RESP = 0x04,  /* UDP unicast: respond with CPU load info        */
-    MSG_TASK_CMD  = 0x05,  /* TCP: dispatch a shell command                  */
     MSG_TASK_FILE = 0x06,  /* TCP: dispatch a .c source file for compile+run */
+
     MSG_OUTPUT    = 0x07,  /* TCP: stdout/stderr chunk from worker           */
     MSG_TASK_DONE = 0x08,  /* TCP: task finished, carries exit code          */
 } msg_type_t;
@@ -56,10 +56,12 @@ typedef struct __attribute__((packed)) {
 } payload_hello_t;
 
 typedef struct __attribute__((packed)) {
-    float    load1;
-    float    load5;
-    float    load15;
+    float    load_pct;
+
     uint32_t active_tasks;
+    uint32_t total_tasks;
+
+    uint32_t num_cores;
 } payload_load_resp_t;
 
 typedef struct __attribute__((packed)) {
@@ -71,10 +73,12 @@ typedef struct __attribute__((packed)) {
 typedef struct {
     char     ip[INET_ADDRSTRLEN];
     uint16_t port;
-    float    load1;
-    float    load5;
-    float    load15;
+    float    load_pct;
+
     uint32_t active_tasks;
+    uint32_t total_tasks;
+
+    uint32_t num_cores;
     time_t   last_seen;
     int      valid;        /* 1 = slot occupied                              */
 } peer_info_t;
@@ -82,14 +86,14 @@ typedef struct {
 /* ─── Task Descriptor ────────────────────────────────────────────────────── */
 
 typedef enum {
-    TASK_CMD,
     TASK_FILE,
 } task_type_t;
 
+
 typedef struct {
     task_type_t type;
-    char        cmd[MAX_CMD_LEN];        /* for TASK_CMD                    */
     char        filename[MAX_FILENAME_LEN]; /* original filename for display */
+
     uint8_t    *file_data;               /* heap-allocated for TASK_FILE    */
     uint32_t    file_size;
 } task_t;

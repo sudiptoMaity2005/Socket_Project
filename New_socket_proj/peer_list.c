@@ -6,6 +6,8 @@
 
 #include "peer_list.h"
 #include "common.h"
+#include "load_monitor.h"
+
 
 static peer_info_t g_peers[MAX_PEERS];
 static pthread_rwlock_t g_lock = PTHREAD_RWLOCK_INITIALIZER;
@@ -46,7 +48,8 @@ void peer_list_add(const char *ip, uint16_t port) {
         }
         memset(&g_peers[idx], 0, sizeof(peer_info_t));
         strncpy(g_peers[idx].ip, ip, INET_ADDRSTRLEN - 1);
-        g_peers[idx].valid = 1;
+        g_peers[idx].valid     = 1;
+        g_peers[idx].num_cores = 1; /* Default to 1 to avoid NaN before query */
         LOG("New peer discovered: %s:%u", ip, port);
     }
     g_peers[idx].port      = port;
@@ -74,17 +77,15 @@ void peer_list_update_load(const char *ip, const payload_load_resp_t *resp) {
         uint32_t tmp;
         float f;
 
-        memcpy(&tmp, &resp->load1,  4); tmp = ntohl(tmp); memcpy(&f, &tmp, 4);
-        g_peers[idx].load1 = f;
+        memcpy(&tmp, &resp->load_pct, 4); tmp = ntohl(tmp); memcpy(&f, &tmp, 4);
+        g_peers[idx].load_pct = f;
 
-        memcpy(&tmp, &resp->load5,  4); tmp = ntohl(tmp); memcpy(&f, &tmp, 4);
-        g_peers[idx].load5 = f;
-
-        memcpy(&tmp, &resp->load15, 4); tmp = ntohl(tmp); memcpy(&f, &tmp, 4);
-        g_peers[idx].load15 = f;
 
         g_peers[idx].active_tasks = ntohl(resp->active_tasks);
+        g_peers[idx].total_tasks  = ntohl(resp->total_tasks);
+        g_peers[idx].num_cores    = ntohl(resp->num_cores);
         g_peers[idx].last_seen    = time(NULL);
+
     }
     pthread_rwlock_unlock(&g_lock);
 }
@@ -123,25 +124,29 @@ void peer_list_reap_stale(void) {
 }
 
 /* ─── peer_list_print ────────────────────────────────────────────────────── */
-void peer_list_print(void) {
+void peer_list_print(const char *local_ip, uint16_t local_port) {
     pthread_rwlock_rdlock(&g_lock);
-    int found = 0;
-    printf("\n%-20s %-6s %-8s %-8s %-8s %s\n",
-           "IP", "PORT", "LOAD1", "LOAD5", "LOAD15", "ACTIVE_TASKS");
-    printf("%-20s %-6s %-8s %-8s %-8s %s\n",
-           "──────────────────","──────","────────","────────","────────","────────────");
+    printf("\n%-18s %-8s %-12s %-12s\n",
+           "IP", "PORT", "LOAD (%)", "ACTIVE");
+    printf("%-18s %-8s %-12s %-12s\n",
+           "────────────────", "──────", "───────────", "───────────");
+
+    /* 1. Print local node info */
+    float local_load = load_get_percentage();
+    uint32_t total_tasks = load_get_total_tasks();
+    printf("%-18s %-8u %.1f%%        %u\n",
+           local_ip, local_port, local_load, total_tasks);
+
+    /* 2. Print discovered peers */
     for (int i = 0; i < MAX_PEERS; i++) {
-        if (!g_peers[i].valid) continue;
-        printf("%-20s %-6u %-8.2f %-8.2f %-8.2f %u\n",
-               g_peers[i].ip,
-               g_peers[i].port,
-               g_peers[i].load1,
-               g_peers[i].load5,
-               g_peers[i].load15,
-               g_peers[i].active_tasks);
-        found++;
+        if (g_peers[i].valid) {
+            printf("%-18s %-8u %.1f%%        %u\n",
+                   g_peers[i].ip, g_peers[i].port,
+                   g_peers[i].load_pct, g_peers[i].total_tasks);
+        }
     }
-    if (!found) printf("  (no peers discovered yet)\n");
     printf("\n");
+
     pthread_rwlock_unlock(&g_lock);
 }
+

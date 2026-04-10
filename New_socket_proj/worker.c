@@ -57,52 +57,9 @@ static int stream_and_wait(int client_fd, int pipe_fd, pid_t child_pid) {
 }
 
 /*
- * Execute cmd (via /bin/sh -c) with merged stdout+stderr piped back.
- */
-static void execute_and_stream(int client_fd, const char *cmd) {
-    LOG("Executing command: %s", cmd);
-    load_task_start();
-
-    int pipefd[2];
-    if (pipe(pipefd) < 0) {
-        load_task_done();
-        LOG("pipe() failed: %s", strerror(errno));
-        return;
-    }
-
-    pid_t pid = fork();
-    if (pid < 0) {
-        close(pipefd[0]); close(pipefd[1]);
-        load_task_done();
-        return;
-    }
-
-    if (pid == 0) {
-        /* Child */
-        close(pipefd[0]);
-        dup2(pipefd[1], STDOUT_FILENO);
-        dup2(pipefd[1], STDERR_FILENO);
-        close(pipefd[1]);
-        execl("/bin/sh", "sh", "-c", cmd, (char *)NULL);
-        _exit(127);
-    }
-
-    /* Parent */
-    close(pipefd[1]);
-    int exit_code = stream_and_wait(client_fd, pipefd[0], pid);
-    close(pipefd[0]);
-
-    payload_task_done_t done;
-    done.exit_code = htonl((uint32_t)exit_code);
-    send_msg(client_fd, MSG_TASK_DONE, &done, sizeof(done));
-
-    load_task_done();
-    LOG("Command done, exit=%d", exit_code);
-}
-
-/*
  * Compile a .c file to a temp binary, then execute and stream.
  */
+
 static void compile_and_stream(int client_fd,
                                 const char *filename,
                                 const uint8_t *data,
@@ -206,21 +163,8 @@ static void *handle_connection(void *arg) {
     }
 
     switch (type) {
-        case MSG_TASK_CMD: {
-            /* payload: uint16_t cmd_len (BE) + cmd bytes */
-            if (plen < 2) break;
-            uint16_t cmd_len;
-            memcpy(&cmd_len, payload, 2);
-            cmd_len = ntohs(cmd_len);
-            if (cmd_len > MAX_CMD_LEN || (uint32_t)(cmd_len + 2) > plen) break;
-            char cmd[MAX_CMD_LEN + 1];
-            memcpy(cmd, payload + 2, cmd_len);
-            cmd[cmd_len] = '\0';
-            free(payload); payload = NULL;
-            execute_and_stream(cfd, cmd);
-            break;
-        }
         case MSG_TASK_FILE: {
+
             /*
              * payload layout:
              *   uint16_t  filename_len (BE)
