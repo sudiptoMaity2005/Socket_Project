@@ -185,3 +185,50 @@ score = load1 + 0.5 × active_tasks
 
 > [!WARNING]
 > This system has **no authentication or encryption**. Run it only on trusted local networks.
+
+---
+
+## File Reference (what each file does)
+
+- `main.c`: Program entrypoint. Parses CLI options, initializes subsystems (`discovery`, `peer_list`, `load_monitor`, `worker`, `dispatcher`), and exposes the REPL used to submit tasks or query peers.
+- `common.h`: Central shared definitions: limits, port defaults, wire protocol message types and header, `peer_info_t` and `task_t` structs, logging macros, and compile-time constants.
+- `net_utils.c` / `net_utils.h`: Low-level socket helpers and utilities:
+    - Create UDP broadcast sockets and TCP server sockets (`make_udp_broadcast_socket`, `make_tcp_server`).
+    - Reliable send/receive helpers for framed messages (`send_all`, `recv_all`, `send_msg`, `recv_msg`).
+    - Local IP detection (`get_local_ip`) and TCP connect wrapper (`tcp_connect`).
+- `peer_list.c` / `peer_list.h`: Thread-safe in-memory peer registry. Stores `peer_info_t` entries, supports add/remove/touch, and reaping of stale peers.
+- `discovery.c` / `discovery.h`: Peer discovery subsystem using UDP broadcasts:
+    - Sends periodic `MSG_HELLO` broadcasts and optional `MSG_BYE` on shutdown.
+    - Listens for HELLO/BYE from other nodes and updates the `peer_list`.
+    - Runs a reaper thread to remove peers that haven't been seen for `PEER_TIMEOUT_SECS`.
+- `load_monitor.c` / `load_monitor.h`: Tracks local load metrics:
+    - Reads `/proc/loadavg` for load1/load5/load15.
+    - Maintains an atomic counter of currently active tasks (`load_task_start`/`load_task_done`).
+    - Exposes `load_get_score()` used by the dispatcher when choosing a node.
+- `worker.c` / `worker.h`: TCP worker server that accepts `MSG_TASK_CMD` and `MSG_TASK_FILE` requests:
+    - For commands: executes via `/bin/sh -c`, streams combined stdout/stderr back as `MSG_OUTPUT`, then sends `MSG_TASK_DONE`.
+    - For files: writes source to `/tmp`, runs `gcc` to compile streaming compiler output, runs the binary if compile succeeds, then streams runtime output.
+    - Enforces `MAX_CONCURRENT_TASKS` and spawns each connection handler in a detached thread.
+- `dispatcher.c` / `dispatcher.h`: Responsible for routing tasks to the best peer:
+    - Queries peers with `MSG_LOAD_REQ` (UDP unicast) and collects `MSG_LOAD_RESP`.
+    - Computes a score (load + active tasks factor) and forwards the task via TCP to the chosen node, or runs locally if no peers respond.
+- `worker.o`, `*.o`: Object files produced by `make`; remove with `make clean` when rebuilding.
+- `Makefile`: Build rules. Targets: `all` (release), `debug` (ASan/UBSan), and `clean`. Uses `gcc` and standard `-Wall -Wextra` flags.
+
+## web/ folder
+
+The `web/` directory contains a tiny web UI used for testing or demonstration purposes:
+
+- `web/app.js`: Minimal client-side JS for interacting with a backend (if included).
+- `web/index.html`: Demo page / UI shell.
+- `web/server.py`: Optional Python development server used to host the web page or provide lightweight HTTP endpoints for demoing the P2P node. Not required to run the C node.
+- `web/style.css`: Basic styling for the demo page.
+
+Notes: the web UI is separate from the P2P node core; it may interact with the node via custom endpoints if you add a small HTTP bridge.
+
+---
+
+If you'd like, I can:
+- add short code pointers (functions) with line numbers for each important routine, or
+- generate a quick `USAGE.md` with examples for testing multi-node behavior locally using different ports.
+
